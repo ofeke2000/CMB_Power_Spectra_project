@@ -4,14 +4,12 @@ import os
 import astropy.units as u
 import matplotlib.pyplot as plt
 from scipy.sparse.linalg import LinearOperator
-import time
-from tqdm import tqdm
 
 NSIDE=2048
 LMIN=2
 LMAX=3000
 
-def generate_map(cls, sigma, lmax=LMAX, nside=NSIDE): #need to generate many of these and get their estimator for errorbars
+def generate_map(cls, sigma, lmax=lmax, nside=nside): #need to generate many of these and get their estimator for errorbars
     # Draw a Gaussian CMB sky from S (Cl)
     alm_sig = hp.synalm(cls[:lmax+1], lmax=lmax)
     # Make signal map
@@ -22,29 +20,19 @@ def generate_map(cls, sigma, lmax=LMAX, nside=NSIDE): #need to generate many of 
     return (s_map + n_map) * mask
 
 
-def N_inv_op(v, N_inv_pix, nside=NSIDE, lmax=LMAX): #operator N^-1 acts on vector v in harmonic space
+def N_inv_op(v, N_inv_pix, nside=NSIDE, lmax=NSIDE): #operator N^-1 acts on vector v in harmonic space
     Av = hp.alm2map(v, nside=nside, lmax=lmax, pol=False, verbose=False) # A=alm2map, this is A v
-    return hp.map2alm(Av* N_inv_pix, lmax=lmax, iter=3, pol=False, verbose=False) # A^T=map2alm, this is A^T N A v
+    return hp.map2alm(A* N_inv_pix, lmax=lmax, iter=3, pol=False, verbose=False) # A^T=map2alm, this is A^T N A v
 
 def S_inv_op(v, S_inv_harm): #operator S^-1 acts on vector v in harmonic space
     return S_inv_harm * v # S^-1 is diagonal
 
-# ----------------------------
-# Load data
-# ----------------------------
-
-cmb_filename = os.path.expanduser("/home/ofeke2000/CMB_project/CMB_Power_Spectra_project/data/COM_CMB_IQU-commander_2048_R3.00_full.fits")
-mask_filename = os.path.expanduser("/home/ofeke2000/CMB_project/CMB_Power_Spectra_project/data/COM_Mask_CMB-common-Mask-Int_2048_R3.00.fits")
+cmb_filename = 'COM_CMB_IQU-commander_2048_R3.00_full.fits'
+mask_filename = 'COM_Mask_CMB-common-Mask-Int_2048_R3.00.fits'
 mask = hp.read_map(mask_filename)
 cmb_map = hp.read_map(cmb_filename)
 map_masked = hp.ma(cmb_map)
 map_masked.mask = np.logical_not(mask)
-
-# ----------------------------
-# Theoretical Cl (replace with CAMB or Planck best-fit)
-# ----------------------------
-
-Cl_theory = cls_theory[:LMAX+1]   #Theory, not measured
 
 # get Cl from map
 cls_meas_frommap = hp.anafast(map_masked, lmax=LMAX, use_pixel_weights=True)
@@ -64,12 +52,12 @@ var_pix = sigma**2          # variance, constant
 N_inv_pix = mask / var_pix          # this is N^{-1}_pix diagonal weights
 
 #act on data N^-1 a
-N_inv_a = N_inv_op(a_lm, N_inv_pix, nside=NSIDE, lmax=LMAX)
+N_inv_a = N_harm_inv(a_lm, N_inv_pix, nside=NSIDE, lmax=NSIDE)
 
 
 # create S^-1 + N^-1 operator to use in iterative gradient inversion
 def S_inv_plus_N_inv(v):
-    return S_inv_op(v, S_inv_harm) + N_inv_op(v, N_inv_pix, nside=NSIDE, lmax=LMAX)
+    return S_inv_op(v, S_inv_harm) + N_inv_op(v, N_inv_pix, nside=nside, lmax=lmax)
     
 S_N_operator = LinearOperator((len(S_inv_harm),len(S_inv_harm)), matvec=S_inv_plus_N_inv)
 
