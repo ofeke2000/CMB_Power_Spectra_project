@@ -27,9 +27,9 @@ def cubic_term(Cinv_a, alpha, beta, LMAX, r_arr, nside):
         al = alpha[i_r, :]
         bl = beta[i_r,  :]
         alm_A = hp.almxfl(Cinv_a, al)
-        map_A = hp.alm2map(alm_A, nside=nside, lmax=LMAX, verbose=False)
+        map_A = hp.alm2map(alm_A, nside=nside, lmax=LMAX)
         alm_B = hp.almxfl(Cinv_a, bl)
-        map_B = hp.alm2map(alm_B, nside=nside, lmax=LMAX, verbose=False)
+        map_B = hp.alm2map(alm_B, nside=nside, lmax=LMAX)
         angular_integral = np.sum(map_A**2 * map_B) * d_Omega
         E_cubic_integrand[i_r] = r**2 * angular_integral
     E_cubic = simpson(E_cubic_integrand, x=r_arr)
@@ -55,9 +55,9 @@ def linear_term_MC(Cinv_a, alpha, beta, LMAX, r_arr, nside, Cl_theory, Cl_safe, 
             al = alpha[i_r, :]
             bl = beta[i_r,  :]
             alm_A_sim = hp.almxfl(sim_filtered, al)
-            map_A_sim  = hp.alm2map(alm_A_sim, nside=nside, lmax=LMAX, verbose=False)
+            map_A_sim  = hp.alm2map(alm_A_sim, nside=nside, lmax=LMAX)
             alm_B_data = hp.almxfl(Cinv_a, bl)
-            map_B_data  = hp.alm2map(alm_B_data, nside=nside, lmax=LMAX, verbose=False)
+            map_B_data  = hp.alm2map(alm_B_data, nside=nside, lmax=LMAX)
             angular_cross = np.sum(map_A_sim**2 * map_B_data) * d_Omega
             E_cross_integrand[i_r] = r**2 * angular_cross
         E_linear_sims[i_sim] = simpson(E_cross_integrand, x=r_arr)

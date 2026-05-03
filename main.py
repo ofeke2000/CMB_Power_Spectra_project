@@ -2,6 +2,7 @@
 
 # === Imports ===
 import os
+import time
 import numpy as np
 import healpy as hp
 from io_utils import logprint, load_maps, downgrade_maps
@@ -15,7 +16,7 @@ from test_pipeline import test_lowres_pipeline
 
 # === User Settings ===
 NSIDE_INPUT = 2048
-TARGET_NSIDE = 128
+TARGET_NSIDE = 256
 data_dir = os.path.expanduser("/home/ofeke2000/CMB_project/CMB_Power_Spectra_project/data")
 output_dir = os.path.expanduser("/home/ofeke2000/CMB_project/CMB_Power_Spectra_project/output")
 os.makedirs(output_dir, exist_ok=True)
@@ -26,13 +27,31 @@ logprint(f"Running at NSIDE={TARGET_NSIDE}, LMAX={LMAX}", log_file)
 
 
 
+
 # === Load Data ===
 cmb_map_full, mask_full = load_maps(data_dir)
+
+# --- Sanity Check 1: Input maps and mask ---
+def check_map_stats(map_data, name, log_file):
+    logprint(f"Sanity check: {name} min={np.nanmin(map_data):.3e}, max={np.nanmax(map_data):.3e}, mean={np.nanmean(map_data):.3e}, std={np.nanstd(map_data):.3e}", log_file)
+    if np.any(np.isnan(map_data)):
+        logprint(f"[ERROR] {name} contains NaNs!", log_file)
+        raise ValueError(f"{name} contains NaNs")
+    if np.all(map_data == 0):
+        logprint(f"[ERROR] {name} is all zeros!", log_file)
+        raise ValueError(f"{name} is all zeros")
+
+check_map_stats(cmb_map_full, "CMB map (full)", log_file)
+check_map_stats(mask_full, "Mask (full)", log_file)
+
 
 
 
 # === Downgrade Maps if Needed ===
 cmb_map, mask = downgrade_maps(cmb_map_full, mask_full, NSIDE_INPUT, TARGET_NSIDE, log_file)
+check_map_stats(cmb_map, "CMB map (target)", log_file)
+check_map_stats(mask, "Mask (target)", log_file)
+
 
 
 
@@ -42,14 +61,30 @@ var_pix = sigma**2
 N_inv_pix = mask / var_pix
 N_inv_mean = np.mean(N_inv_pix[mask > 0])
 
+# --- Sanity Check 2: Noise map ---
+check_map_stats(N_inv_pix, "N_inv_pix", log_file)
+if np.any(N_inv_pix[mask > 0] <= 0):
+    logprint("[ERROR] N_inv_pix has non-positive values in unmasked region!", log_file)
+    raise ValueError("N_inv_pix has non-positive values in unmasked region!")
+
 
 # (Optional) Harmonic data for diagnostics
 a_lm = hp.map2alm(cmb_map * mask, lmax=LMAX, iter=3)
 
 
 
+
 # === Theoretical Cl ===
 Cl_theory, Cl_safe = get_theory_Cl(LMAX)
+# --- Sanity Check 3: Cl ---
+def check_Cl(Cl, name, log_file):
+    logprint(f"Sanity check: {name} min={np.min(Cl):.3e}, max={np.max(Cl):.3e}", log_file)
+    if np.any(Cl < 0):
+        logprint(f"[ERROR] {name} has negative values!", log_file)
+        raise ValueError(f"{name} has negative values!")
+check_Cl(Cl_theory, "Cl_theory", log_file)
+check_Cl(Cl_safe, "Cl_safe", log_file)
+
 
 
 
@@ -59,17 +94,27 @@ alm_size = 2 * alm_size_complex
 b_real = build_rhs(cmb_map, N_inv_pix, LMAX)
 logprint("b_real magnitude: {:.3e}".format(np.linalg.norm(b_real)), log_file)
 
+# --- Sanity Check 4: b_real ---
+if not np.all(np.isfinite(b_real)):
+    logprint("[ERROR] b_real contains non-finite values!", log_file)
+    raise ValueError("b_real contains non-finite values!")
+if np.linalg.norm(b_real) == 0:
+    logprint("[ERROR] b_real is all zeros!", log_file)
+    raise ValueError("b_real is all zeros!")
 
-# (Optional) Add diagnostics or SPD test here if needed
 
-
-
+# --- CG Solve and Sanity Check 5: CG convergence and filtered map power ---
 Cinv_a = cg_solve_Cinv_a(b_real, alm_size, alm_size_complex, Cl_safe, N_inv_pix, TARGET_NSIDE, LMAX, N_inv_mean, logprint=lambda msg: logprint(msg, log_file))
 
-
-# (Optional) Add residual check or diagnostics here if needed
-
-
+# Check filtered map alm power
+alm_power = hp.alm2cl(Cinv_a)
+logprint(f"Sanity check: Filtered alm power min={np.min(alm_power):.3e}, max={np.max(alm_power):.3e}, mean={np.mean(alm_power):.3e}", log_file)
+if np.any(~np.isfinite(alm_power)):
+    logprint("[ERROR] Filtered alm power contains non-finite values!", log_file)
+    raise ValueError("Filtered alm power contains non-finite values!")
+if np.all(alm_power == 0):
+    logprint("[ERROR] Filtered alm power is all zeros!", log_file)
+    raise ValueError("Filtered alm power is all zeros!")
 
 # === Main f_NL Calculation ===
 def main_fnl_pipeline():
@@ -157,68 +202,10 @@ def benchmark_nside(nside_list):
 #results = benchmark_nside([64, 128, 256, 512, 1024, 2048])
 
 
-# === Main f_NL Calculation ===
-def main_fnl_pipeline():
-    logprint("\n========== STARTING f_NL COMPUTATION (Eq. 2.1, unnormalized) ==========")
-    # Step 1: Get transfer functions
-    logprint("Computing CAMB transfer functions...")
-    pars_transfer = camb.CAMBparams()
-    pars_transfer.set_cosmology(H0=67.5, ombh2=0.022, omch2=0.122)
-    pars_transfer.InitPower.set_params(As=2e-9, ns=0.965)
-    pars_transfer.set_for_lmax(LMAX, lens_potential_accuracy=0)
-    pars_transfer.WantTransfer = False
-    pars_transfer.WantCls = True
-    data_transfer = camb.get_transfer_functions(pars_transfer)
-    k_min = 1e-4
-    k_max = 0.5
-    N_k = 200
-    k_arr = np.geomspace(k_min, k_max, N_k)
-    k_pivot = 0.05
-    A_s = 2e-9
-    n_s = 0.965
-    P_prim = A_s * (k_arr / k_pivot)**(n_s - 1)
-    transfer_data = data_transfer.get_cmb_transfer_data()
-    k_camb = transfer_data.q
-    Delta_lk = transfer_data.delta_p_l_k[0]
-    from scipy.interpolate import interp1d
-    Delta_interp = np.zeros((LMAX + 1, N_k))
-    for l in range(2, LMAX + 1):
-        if l < Delta_lk.shape[0]:
-            f_interp = interp1d(k_camb, Delta_lk[l, :], kind='linear', bounds_error=False, fill_value=0.0)
-            Delta_interp[l, :] = f_interp(k_arr)
-    logprint("Transfer function interpolation done.")
-    # Step 2: r grid
-    r_min = 100.0
-    r_max = 14000.0
-    N_r = 50
-    r_arr = np.linspace(r_min, r_max, N_r)
-    logprint(f"Radial grid: {N_r} shells from {r_min} to {r_max} Mpc")
-    # Step 3: alpha, beta
-    logprint("Computing alpha_l(r) and beta_l(r) ... (this takes a while)")
-    alpha, beta = compute_alpha_beta(LMAX, k_arr, Delta_interp, P_prim, r_arr)
-    logprint("alpha_l(r) and beta_l(r) done.")
-    # Step 4: Cubic term
-    logprint("Computing cubic term (Eq. 2.1 numerator) ...")
-    E_cubic = cubic_term(Cinv_a, alpha, beta, LMAX, r_arr, TARGET_NSIDE)
-    logprint(f"E_cubic (raw) = {E_cubic:.6e}")
-    # Step 5: Linear term (mean-field, MC)
-    logprint("Computing linear term (mean-field, MC approximation) ...")
-    E_linear = linear_term_MC(Cinv_a, alpha, beta, LMAX, r_arr, TARGET_NSIDE, Cl_theory, Cl_safe, var_pix, mask, N_sim=20)
-    logprint(f"E_linear (mean-field) = {E_linear:.6e}")
-    # Step 6: Unnormalized estimator
-    E_unnorm = E_cubic - E_linear
-    logprint(f"\nE_cubic  = {E_cubic:.6e}")
-    logprint(f"E_linear = {E_linear:.6e}")
-    logprint(f"E_unnorm = E_cubic - E_linear = {E_unnorm:.6e}")
-    logprint("\n========== f_NL numerator (unnormalized, Eq. 2.1) ==========")
-    logprint(f"f_NL numerator = {E_unnorm:.6e}")
-    log_file.close()
-
-
 # === Test Function for Low Resolution ===
 
 if __name__ == "__main__":
     # Run test at low resolution first
-    test_lowres_pipeline(data_dir, NSIDE_INPUT, var_pix, mask_full, cmb_map_full, log_file)
+    #test_lowres_pipeline(data_dir, NSIDE_INPUT, var_pix, mask_full, cmb_map_full, log_file)
     # Optionally, run full pipeline after test
-    # main_fnl_pipeline()
+    main_fnl_pipeline()
