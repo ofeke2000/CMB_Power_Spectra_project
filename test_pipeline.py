@@ -16,7 +16,8 @@ def test_lowres_pipeline(data_dir, nside_in, var_pix, mask_full, cmb_map_full, l
     alm_size = 2 * alm_size_complex
     b_real = build_rhs(cmb_map, N_inv_pix, LMAX)
     Cl_theory, Cl_safe = get_theory_Cl(LMAX)
-    Cinv_a = cg_solve_Cinv_a(b_real, alm_size, alm_size_complex, Cl_safe, N_inv_pix, TARGET_NSIDE, LMAX, N_inv_mean, maxiter=50, logprint=lambda msg: logprint(msg, log_file))
+    Cinv_a, cg_info = cg_solve_Cinv_a(b_real, alm_size, alm_size_complex, Cl_safe, N_inv_pix, TARGET_NSIDE, LMAX, N_inv_mean, maxiter=50, logprint=lambda msg: logprint(msg, log_file))
+    assert cg_info == 0, f"[ERROR] CG did not converge! info={cg_info}"
     # Minimal estimator test (no full pipeline for speed)
     assert np.all(np.isfinite(Cinv_a)), "Cinv_a contains non-finite values!"
     logprint("[TEST] Low-res pipeline completed successfully.", log_file)

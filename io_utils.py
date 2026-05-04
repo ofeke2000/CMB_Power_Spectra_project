@@ -24,8 +24,8 @@ def downgrade_maps(cmb_map_full, mask_full, nside_in, nside_out, log_file=None):
         cmb_map = np.nan_to_num(cmb_map)
         cmb_map[~np.isfinite(cmb_map)] = 0.0
         mask = hp.ud_grade(mask_full, nside_out)
-        mask = (mask > 0.9).astype(float)
+        mask = (mask > 0.5).astype(float)
     else:
-        cmb_map = cmb_map_full
-        mask = mask_full
+        cmb_map = cmb_map_full.copy()
+        mask = (mask_full > 0.5).astype(float)  # Always binarize
     return cmb_map, mask
