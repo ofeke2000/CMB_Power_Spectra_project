@@ -206,7 +206,7 @@ def main_fnl_pipeline():
         Cl_safe,
         var_pix,
         mask,
-        N_sim=5,
+        N_sim=15,
         N_inv_pix=N_inv_pix,
         alm_size=alm_size,
         alm_size_complex=alm_size_complex,
