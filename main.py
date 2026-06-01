@@ -108,7 +108,7 @@ if np.linalg.norm(b_real) == 0:
 
 # --- CG Solve and Sanity Check 5: CG convergence and filtered map power ---
 c_inv_start_time = time.time()
-Cinv_a_wiener, cg_info = cg_solve_Cinv_a(
+x_solution, cg_info = cg_solve_Cinv_a(
     b_real,
     alm_size,
     alm_size_complex,
@@ -127,7 +127,7 @@ if cg_info != 0:
     log("Proceeding anyway but results may be unreliable")
 
 b_complex = b_real[:alm_size_complex] + 1j * b_real[alm_size_complex:]
-residual = apply_S_N_operator(Cinv_a_wiener, Cl_safe, N_inv_pix, TARGET_NSIDE, LMAX) - b_complex
+residual = apply_S_N_operator(x_solution, Cl_safe, N_inv_pix, TARGET_NSIDE, LMAX) - b_complex
 # For residual check, mask out marginalized l=0,1 modes since they have large residuals by design
 residual_masked = residual.copy()
 # Set l=0, m=0 to 0
@@ -139,10 +139,9 @@ log(f"CG relative residual (l>=2): {rel_residual:.3e}")
 if rel_residual > 1e-3:
     log(f"[WARNING] CG residual {rel_residual:.3e} is large!")
 
-# CG gives Wiener filter W*a = S*(S+N)^{-1}*a
-# Estimator needs C^{-1}*a = (S+N)^{-1}*a = S^{-1} * (CG result)
-Cinv_a = hp.almxfl(Cinv_a_wiener, 1.0 / Cl_safe)
-log("[INFO] Applied S^{-1} correction: Wiener filter → C^{-1}a")
+# CG returns x = (S^{-1}+N^{-1})^{-1} N^{-1} a; applying S^{-1} gives C^{-1} a = (S+N)^{-1} a
+Cinv_a = hp.almxfl(x_solution, 1.0 / Cl_safe)
+log("[INFO] Applied S^{-1} to CG solution x to obtain C^{-1}a")
 
 # Check filtered map alm power
 alm_power = hp.alm2cl(Cinv_a)
